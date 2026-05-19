@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
+from app.models.employee import Employee
 from app.database import create_db_and_tables
 from app.routes.attendance import router as attendance_router
 
