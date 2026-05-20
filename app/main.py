@@ -10,7 +10,7 @@ from app.routes.attendance import router as attendance_router
 async def lifespan(app: FastAPI):
     # 서버 시작 시 실행
     create_db_and_tables()
-    print("DB 초기화 완료")
+    print("DB 준비 완료")
 
     yield
 
