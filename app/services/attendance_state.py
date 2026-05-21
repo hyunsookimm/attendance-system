@@ -8,7 +8,7 @@ class InvalidTransitionException(Exception):
 
 # 상태 전이 규칙 테이블
 STATE_TRANSITION: dict = {
-    # 아직 출근 전 (오늘 기록 없음)
+    # 아직 출근 전
     None: {
         ActionType.CHECK_IN: AttendanceStatus.WORKING,
     },
@@ -36,7 +36,7 @@ STATE_TRANSITION: dict = {
         ActionType.CHECK_OUT: AttendanceStatus.OFF_WORK,
     },
 
-    # 퇴근 상태 (종료 상태)
+    # 퇴근 상태
     AttendanceStatus.OFF_WORK: {
         # 아무 행동도 허용하지 않음
     },

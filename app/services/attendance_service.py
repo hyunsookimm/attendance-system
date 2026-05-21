@@ -161,7 +161,7 @@ class AttendanceService:
             AttendanceStatus.OFF_WORK
         )
 
-    # 수정 (핵심 정리 버전)
+    # 수정
     def update_attendance(
         self,
         employee_id: int,
