@@ -56,14 +56,14 @@ def get_today(employee_id: int, service: AttendanceService = Depends(get_service
     return service.get_today_records(employee_id)
 
 # 출입 기록 수정
-@router.patch("/{attendance_id}")
+@router.patch("/{employee_id}")
 def update_attendance(
-    attendance_id: int,
+    employee_id: int,
     request: AttendanceUpdateRequest,
     service: AttendanceService = Depends(get_service),
 ):
 
     return service.update_attendance(
-        attendance_id,
-        request.status
+        employee_id,
+        request.action_type
     )

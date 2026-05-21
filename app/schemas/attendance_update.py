@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 
-from app.enums.status import AttendanceStatus
+from app.enums.action_type import ActionType
 
 
 class AttendanceUpdateRequest(BaseModel):
-    status: AttendanceStatus
+    action_type: ActionType

@@ -1,14 +1,16 @@
 from datetime import date, datetime, time
-from app.models.attendance_log import AttendanceLog
 
 from fastapi import HTTPException
+from sqlalchemy.orm import attributes
 from sqlmodel import Session, select
 
 from app.models.attendance import AttendanceRecord
+from app.models.attendance_log import AttendanceLog
+
 from app.enums.status import AttendanceStatus
 from app.enums.action_type import ActionType
 
-from app.services.attendance_state import is_valid_transition
+from app.services.attendance_state import get_next_status, is_valid_transition, InvalidTransitionException
 
 
 class AttendanceService:
@@ -33,14 +35,13 @@ class AttendanceService:
 
         return self.session.exec(statement).all()
 
-    # 최신 기록 조회
+    # 최근 기록
     def get_latest_record(self, employee_id: int):
 
         records = self.get_today_records(employee_id)
-
         return records[-1] if records else None
 
-    # 공통 작업 로직 
+    # 공통 생성 로직
     def create_record(
         self,
         employee_id: int,
@@ -67,10 +68,7 @@ class AttendanceService:
         latest = self.get_latest_record(employee_id)
 
         if latest:
-            raise HTTPException(
-                status_code=400,
-                detail="이미 출근 처리됨"
-            )
+            raise HTTPException(status_code=400, detail="이미 출근 처리됨")
 
         return self.create_record(
             employee_id,
@@ -84,19 +82,10 @@ class AttendanceService:
         latest = self.get_latest_record(employee_id)
 
         if not latest:
-            raise HTTPException(
-                status_code=404,
-                detail="출근 기록 없음"
-            )
+            raise HTTPException(status_code=404, detail="출근 기록 없음")
 
-        if not is_valid_transition(
-            latest.status,
-            ActionType.OUTING
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail="외출 불가능한 상태"
-            )
+        if not is_valid_transition(latest.status, ActionType.OUTING):
+            raise HTTPException(status_code=400, detail="외출 불가능")
 
         return self.create_record(
             employee_id,
@@ -110,19 +99,10 @@ class AttendanceService:
         latest = self.get_latest_record(employee_id)
 
         if not latest:
-            raise HTTPException(
-                status_code=404,
-                detail="출근 기록 없음"
-            )
+            raise HTTPException(status_code=404, detail="출근 기록 없음")
 
-        if not is_valid_transition(
-            latest.status,
-            ActionType.RETURN
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail="복귀 불가능한 상태"
-            )
+        if not is_valid_transition(latest.status, ActionType.RETURN):
+            raise HTTPException(status_code=400, detail="복귀 불가능")
 
         return self.create_record(
             employee_id,
@@ -136,19 +116,10 @@ class AttendanceService:
         latest = self.get_latest_record(employee_id)
 
         if not latest:
-            raise HTTPException(
-                status_code=404,
-                detail="출근 기록 없음"
-            )
+            raise HTTPException(status_code=404, detail="출근 기록 없음")
 
-        if not is_valid_transition(
-            latest.status,
-            ActionType.LUNCH
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail="점심 처리 불가능한 상태"
-            )
+        if not is_valid_transition(latest.status, ActionType.LUNCH):
+            raise HTTPException(status_code=400, detail="점심 불가능")
 
         return self.create_record(
             employee_id,
@@ -162,19 +133,10 @@ class AttendanceService:
         latest = self.get_latest_record(employee_id)
 
         if not latest:
-            raise HTTPException(
-                status_code=404,
-                detail="출근 기록 없음"
-            )
+            raise HTTPException(status_code=404, detail="출근 기록 없음")
 
-        if not is_valid_transition(
-            latest.status,
-            ActionType.EARLY_LEAVE
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail="조퇴 처리 불가능한 상태"
-            )
+        if not is_valid_transition(latest.status, ActionType.EARLY_LEAVE):
+            raise HTTPException(status_code=400, detail="조퇴 불가능")
 
         return self.create_record(
             employee_id,
@@ -188,61 +150,53 @@ class AttendanceService:
         latest = self.get_latest_record(employee_id)
 
         if not latest:
-            raise HTTPException(
-                status_code=404,
-                detail="출근 기록 없음"
-            )
+            raise HTTPException(status_code=404, detail="출근 기록 없음")
 
-        if not is_valid_transition(
-            latest.status,
-            ActionType.CHECK_OUT
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail="퇴근 불가능한 상태"
-            )
+        if not is_valid_transition(latest.status, ActionType.CHECK_OUT):
+            raise HTTPException(status_code=400, detail="퇴근 불가능")
 
         return self.create_record(
             employee_id,
             ActionType.CHECK_OUT,
             AttendanceStatus.OFF_WORK
         )
-        
-    # 출입 기록 수정    
+
+    # 수정 (핵심 정리 버전)
     def update_attendance(
         self,
-        attendance_id: int,
-        new_status: AttendanceStatus
+        employee_id: int,
+        new_action_type: ActionType
     ):
-        
-        # 기존 기록 조회
-        attendance = self.session.get(
-            AttendanceRecord,
-            attendance_id
-        )
-        
+
+        attendance = self.get_latest_record(employee_id)
+
         if not attendance:
-            raise HTTPException(
-                status_code=404,
-                detail="출입 기록 없음"
-            )
-            
-        # 이전 상태 저장
+            raise HTTPException(status_code=404, detail="출근 기록 없음")
+
+        # 상태 계산
+        try:
+            new_status = get_next_status(attendance.status, new_action_type)
+        except InvalidTransitionException as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
         before_status = attendance.status
-        
-        # 상태 수정
+
+        # 둘 다 업데이트
         attendance.status = new_status
-        
-        # 수정 로그 저장
+        attendance.action_type = new_action_type
+        attributes.flag_modified(attendance, "status")
+        attributes.flag_modified(attendance, "action_type")
+
+        # 로그 저장
         log = AttendanceLog(
             attendance_id=attendance.id,
             before_status=before_status,
             after_status=new_status,
         )
-        
-        self.session.add(log)
+
         self.session.add(attendance)
-        
+        self.session.add(log)
+
         self.session.commit()
         self.session.refresh(attendance)
 

@@ -67,7 +67,7 @@ def get_next_status(
     return allowed_actions[action_type]
 
 
-# 유효성 체크 (옵션용)
+# 유효성 체크
 def is_valid_transition(
     current_status: AttendanceStatus | None,
     action_type: ActionType

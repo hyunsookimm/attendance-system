@@ -1,8 +1,9 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
-from app.models.employee import Employee
 from app.database import create_db_and_tables
+import app.models  # 👈 이게 핵심 (모델 자동 등록)
+
 from app.routes.attendance import router as attendance_router
 
 
@@ -13,6 +14,7 @@ async def lifespan(app: FastAPI):
     print("DB 준비 완료")
 
     yield
+
 
 app = FastAPI(
     title="Attendance System",
@@ -25,4 +27,4 @@ app.include_router(attendance_router)
 
 @app.get("/")
 def root():
-    return {"message": "Attendance system is running"}
+    return {"message": "출입 관리 시스템"}
