@@ -6,7 +6,7 @@ from app.enums.action_type import ActionType
 class InvalidTransitionException(Exception):
     pass
 
-# 상태 전이 규칙 테이블
+# 상태 규칙 테이블
 STATE_TRANSITION: dict = {
     # 아직 출근 전
     None: {
@@ -43,7 +43,7 @@ STATE_TRANSITION: dict = {
 }
 
 
-# 핵심 함수: 상태 전이 계산
+# 상태 전이 계산
 def get_next_status(
     current_status: AttendanceStatus | None,
     action_type: ActionType
