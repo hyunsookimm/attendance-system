@@ -30,6 +30,7 @@ def update_attendance(
     request: AttendanceUpdateRequest,
     service: AttendanceService = Depends(get_service),
 ):
+    # 수정된 출퇴근 기록
     return service.update_attendance(
         employee_id,
         request.action_type
