@@ -1,30 +1,51 @@
-from fastapi import FastAPI
-from contextlib import asynccontextmanager
+import os
 
-from app.database import create_db_and_tables
-import app.models  # 모델을 SQLModel에 등록하기 위한 의도적 import
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
+from dotenv import load_dotenv
 
 from app.routes.attendance import router as attendance_router
+from app.routes.admin import router as admin_router
+
+load_dotenv()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    
-    create_db_and_tables()
-    print("DB 준비 완료")
-
     yield
 
 
 app = FastAPI(
     title="Attendance System",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    openapi_tags=[
+        {
+            "name": "직원",
+            "description": "직원이 직접 사용하는 출퇴근 기록 API입니다.",
+        },
+        {
+            "name": "관리자",
+            "description": "관리자가 직원의 출퇴근 기록을 조회하고 수정하는 API입니다.",
+        },
+    ]
+)
+
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "").split(",")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(attendance_router)
+app.include_router(admin_router)
 
 
-@app.get("/")
+@app.get("/", include_in_schema=False)
 def root():
     return {"message": "출입 관리 시스템"}

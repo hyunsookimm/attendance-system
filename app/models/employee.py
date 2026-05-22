@@ -12,4 +12,4 @@ class Employee(SQLModel, table=True):
 
     department: str
 
-    employee_number: str
+    employee_number: str = Field(unique=True)
