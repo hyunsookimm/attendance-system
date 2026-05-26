@@ -24,6 +24,10 @@ def check_in(employee_id: int, service: AttendanceService = Depends(get_service)
 def check_out(employee_id: int, service: AttendanceService = Depends(get_service)):
     return service.check_out(employee_id)
 
+# 점심
+@router.post("/lunch", summary="점심", response_model=AttendanceRecordResponse)
+def lunch(employee_id: int, service: AttendanceService = Depends(get_service)):
+    return service.lunch(employee_id)
 
 # 외출
 @router.post("/outing", summary="외출", response_model=AttendanceRecordResponse)
@@ -35,13 +39,6 @@ def outing(employee_id: int, service: AttendanceService = Depends(get_service)):
 @router.post("/return", summary="외출 / 점심 후 복귀", response_model=AttendanceRecordResponse)
 def return_to_work(employee_id: int, service: AttendanceService = Depends(get_service)):
     return service.return_to_work(employee_id)
-
-
-# 점심
-@router.post("/lunch", summary="점심", response_model=AttendanceRecordResponse)
-def lunch(employee_id: int, service: AttendanceService = Depends(get_service)):
-    return service.lunch(employee_id)
-
 
 # 조퇴
 @router.post("/early-leave", summary="조퇴", response_model=AttendanceRecordResponse)

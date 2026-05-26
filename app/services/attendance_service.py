@@ -2,7 +2,6 @@ from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import attributes
 from sqlmodel import Session, select
 
@@ -67,12 +66,15 @@ def get_next_status(
 
     if allowed_actions is None:
         raise InvalidTransitionException(
-            f"[INVALID STATE] {current_status} 알 수 없는 상태입니다"
+            f"알 수 없는 상태입니다: {current_status}"
         )
 
     if action_type not in allowed_actions:
+        current_label = current_status.label if current_status else "출근 전"
+        allowed_labels = ", ".join(a.label for a in allowed_actions)
         raise InvalidTransitionException(
-            f"[INVALID TRANSITION] {current_status} → {action_type} 불가능"
+            f"현재 상태 [{current_label}]에서 [{action_type.label}]은(는) 불가능합니다. "
+            f"가능한 행동: {allowed_labels}"
         )
 
     return allowed_actions[action_type]
@@ -97,7 +99,7 @@ class AttendanceService:
     def __init__(self, session: Session):
         self.session = session
 
-    # 오늘 기록 조회 (내부용)
+    # 오늘 기록 조회
     def get_today_records(self, employee_id: int):
 
         today = datetime.now(KST).date()
@@ -148,11 +150,7 @@ class AttendanceService:
         )
 
         self.session.add(record)
-        try:
-            self.session.commit()
-        except IntegrityError:
-            self.session.rollback()
-            raise HTTPException(status_code=404, detail="존재하지 않는 직원입니다")
+        self.session.commit()
         self.session.refresh(record)
 
         return record
