@@ -280,11 +280,9 @@ class AttendanceService:
             raise HTTPException(status_code=404, detail="출근 기록 없음")
 
         latest = records[-1]
-        # 수정 대상 기록 이전의 상태 (2번째 기록이 없으면 출근 전 = None)
-        prev_status = records[-2].status if len(records) >= 2 else None
 
         try:
-            new_status = get_next_status(prev_status, new_action_type)
+            new_status = get_next_status(latest.status, new_action_type)
         except InvalidTransitionException as e:
             raise HTTPException(status_code=400, detail=str(e))
 
