@@ -99,17 +99,24 @@ class AttendanceService:
     def __init__(self, session: Session):
         self.session = session
 
+    # KST 날짜 범위
+    def _get_today_range(self) -> tuple[datetime, datetime]:
+        today = datetime.now(KST).date()
+        start = datetime.combine(today, time.min)
+        end = datetime.combine(today, time.max)
+        return start, end
+
     # 오늘 기록 조회
     def get_today_records(self, employee_id: int):
 
-        today = datetime.now(KST).date()
+        start, end = self._get_today_range()
 
         statement = (
             select(AttendanceRecord)
             .where(
                 AttendanceRecord.employee_id == employee_id,
-                AttendanceRecord.recorded_at >= datetime.combine(today, time.min),
-                AttendanceRecord.recorded_at <= datetime.combine(today, time.max),
+                AttendanceRecord.recorded_at >= start,
+                AttendanceRecord.recorded_at <= end,
             )
             .order_by(AttendanceRecord.recorded_at)
         )
@@ -119,14 +126,14 @@ class AttendanceService:
     # 최근 기록 1건 조회
     def get_latest_record(self, employee_id: int):
 
-        today = datetime.now(KST).date()
+        start, end = self._get_today_range()
 
         statement = (
             select(AttendanceRecord)
             .where(
                 AttendanceRecord.employee_id == employee_id,
-                AttendanceRecord.recorded_at >= datetime.combine(today, time.min),
-                AttendanceRecord.recorded_at <= datetime.combine(today, time.max),
+                AttendanceRecord.recorded_at >= start,
+                AttendanceRecord.recorded_at <= end,
             )
             .order_by(AttendanceRecord.recorded_at.desc())
             .limit(1)
@@ -274,12 +281,10 @@ class AttendanceService:
         new_action_type: ActionType
     ):
 
-        records = self.get_today_records(employee_id)
+        latest = self.get_latest_record(employee_id)
 
-        if not records:
+        if not latest:
             raise HTTPException(status_code=404, detail="출근 기록 없음")
-
-        latest = records[-1]
 
         try:
             new_status = get_next_status(latest.status, new_action_type)
