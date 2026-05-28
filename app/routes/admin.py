@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
+from typing import List
 
 from app.database import get_session
 from app.services.attendance_service import AttendanceService
@@ -14,8 +15,17 @@ def get_service(session: Session = Depends(get_session)):
     return AttendanceService(session)
 
 
+# 오늘 전체 기록 조회
+@router.get("/today/all", summary="직원의 오늘 전체 출퇴근 기록 조회", response_model=List[AttendanceRecordResponse])
+def get_today_all(employee_id: int, service: AttendanceService = Depends(get_service)):
+    records = service.get_today_records(employee_id)
+    if not records:
+        raise HTTPException(status_code=404, detail="오늘 출퇴근 기록 없음")
+    return records
+
+
 # 오늘 최근 기록 조회
-@router.get("/today", summary="직원의 오늘 최근 출퇴근 기록 조회", response_model=AttendanceRecordResponse)
+@router.get("/today", summary="직원의 최근 출퇴근 기록 조회", response_model=AttendanceRecordResponse)
 def get_today(employee_id: int, service: AttendanceService = Depends(get_service)):
     record = service.get_latest_record(employee_id)
     if not record:

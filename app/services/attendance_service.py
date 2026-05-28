@@ -1,5 +1,4 @@
 from datetime import datetime, time
-from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 from sqlalchemy.orm import attributes
@@ -7,11 +6,9 @@ from sqlmodel import Session, select
 
 from app.models.attendance import AttendanceRecord, AttendanceLog
 from app.models.employee import Employee
-
 from app.enums.status import AttendanceStatus
 from app.enums.action_type import ActionType
-
-KST = ZoneInfo("Asia/Seoul")
+from app.timezone import KST
 
 
 # 예외 정의
@@ -78,20 +75,6 @@ def get_next_status(
         )
 
     return allowed_actions[action_type]
-
-
-# 유효성 체크
-def is_valid_transition(
-    current_status: AttendanceStatus | None,
-    action_type: ActionType
-) -> bool:
-
-    allowed_actions = STATE_TRANSITION.get(current_status)
-
-    if allowed_actions is None:
-        return False
-
-    return action_type in allowed_actions
 
 
 class AttendanceService:
@@ -178,100 +161,49 @@ class AttendanceService:
             self.session.commit()
 
         latest = self.get_latest_record(employee_id)
+        current_status = latest.status if latest else None
 
-        if latest:
-            raise HTTPException(status_code=400, detail="이미 출근 처리됨")
+        try:
+            next_status = get_next_status(current_status, ActionType.CHECK_IN)
+        except InvalidTransitionException as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
-        return self.create_record(
-            employee_id,
-            ActionType.CHECK_IN,
-            AttendanceStatus.WORKING
-        )
+        return self.create_record(employee_id, ActionType.CHECK_IN, next_status)
+
+    # 공통 액션 처리
+    def _perform_action(self, employee_id: int, action_type: ActionType):
+
+        latest = self.get_latest_record(employee_id)
+
+        if not latest:
+            raise HTTPException(status_code=404, detail="출근 기록 없음")
+
+        try:
+            next_status = get_next_status(latest.status, action_type)
+        except InvalidTransitionException as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        return self.create_record(employee_id, action_type, next_status)
 
     # 퇴근
     def check_out(self, employee_id: int):
+        return self._perform_action(employee_id, ActionType.CHECK_OUT)
 
-        latest = self.get_latest_record(employee_id)
-
-        if not latest:
-            raise HTTPException(status_code=404, detail="출근 기록 없음")
-
-        if not is_valid_transition(latest.status, ActionType.CHECK_OUT):
-            raise HTTPException(status_code=400, detail="퇴근 불가능")
-
-        return self.create_record(
-            employee_id,
-            ActionType.CHECK_OUT,
-            AttendanceStatus.OFF_WORK
-        )
-        
     # 외출
     def outing(self, employee_id: int):
-
-        latest = self.get_latest_record(employee_id)
-
-        if not latest:
-            raise HTTPException(status_code=404, detail="출근 기록 없음")
-
-        if not is_valid_transition(latest.status, ActionType.OUTING):
-            raise HTTPException(status_code=400, detail="외출 불가능")
-
-        return self.create_record(
-            employee_id,
-            ActionType.OUTING,
-            AttendanceStatus.OUTING
-        )
+        return self._perform_action(employee_id, ActionType.OUTING)
 
     # 복귀
     def return_to_work(self, employee_id: int):
-
-        latest = self.get_latest_record(employee_id)
-
-        if not latest:
-            raise HTTPException(status_code=404, detail="출근 기록 없음")
-
-        if not is_valid_transition(latest.status, ActionType.RETURN):
-            raise HTTPException(status_code=400, detail="복귀 불가능")
-
-        return self.create_record(
-            employee_id,
-            ActionType.RETURN,
-            AttendanceStatus.WORKING
-        )
+        return self._perform_action(employee_id, ActionType.RETURN)
 
     # 점심
     def lunch(self, employee_id: int):
-
-        latest = self.get_latest_record(employee_id)
-
-        if not latest:
-            raise HTTPException(status_code=404, detail="출근 기록 없음")
-
-        if not is_valid_transition(latest.status, ActionType.LUNCH):
-            raise HTTPException(status_code=400, detail="점심 불가능")
-
-        return self.create_record(
-            employee_id,
-            ActionType.LUNCH,
-            AttendanceStatus.LUNCH
-        )
+        return self._perform_action(employee_id, ActionType.LUNCH)
 
     # 조퇴
     def early_leave(self, employee_id: int):
-
-        latest = self.get_latest_record(employee_id)
-
-        if not latest:
-            raise HTTPException(status_code=404, detail="출근 기록 없음")
-
-        if not is_valid_transition(latest.status, ActionType.EARLY_LEAVE):
-            raise HTTPException(status_code=400, detail="조퇴 불가능")
-
-        return self.create_record(
-            employee_id,
-            ActionType.EARLY_LEAVE,
-            AttendanceStatus.EARLY_LEAVE
-        )
+        return self._perform_action(employee_id, ActionType.EARLY_LEAVE)
 
 
     # 수정

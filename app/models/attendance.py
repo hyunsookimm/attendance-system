@@ -1,18 +1,16 @@
 from datetime import datetime
 from typing import Optional
 from uuid import UUID, uuid6
-from zoneinfo import ZoneInfo
 
 from sqlmodel import SQLModel, Field
 
 from app.enums.status import AttendanceStatus
 from app.enums.action_type import ActionType
-
-_KST = ZoneInfo("Asia/Seoul")
+from app.timezone import KST
 
 
 def _now_kst() -> datetime:
-    return datetime.now(_KST).replace(tzinfo=None)
+    return datetime.now(KST).replace(tzinfo=None)
 
 
 class AttendanceRecord(SQLModel, table=True):
