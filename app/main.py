@@ -44,8 +44,3 @@ app.add_middleware(
 
 app.include_router(attendance_router)
 app.include_router(admin_router)
-
-
-@app.get("/", include_in_schema=False)
-def root():
-    return {"message": "출입 관리 시스템"}

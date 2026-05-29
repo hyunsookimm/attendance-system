@@ -2,7 +2,8 @@ from datetime import datetime, time
 
 from fastapi import HTTPException
 from sqlalchemy.orm import attributes
-from sqlmodel import Session, select
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.models.attendance import AttendanceRecord, AttendanceLog
 from app.models.employee import Employee
@@ -11,89 +12,19 @@ from app.enums.action_type import ActionType
 from app.timezone import KST
 
 
-# 예외 정의
-class InvalidTransitionException(Exception):
-    pass
-
-
-# 상태 규칙 테이블
-STATE_TRANSITION: dict = {
-    # 아직 출근 전
-    None: {
-        ActionType.CHECK_IN: AttendanceStatus.WORKING,
-    },
-
-    # 근무 중
-    AttendanceStatus.WORKING: {
-        ActionType.OUTING: AttendanceStatus.OUTING,
-        ActionType.LUNCH: AttendanceStatus.LUNCH,
-        ActionType.EARLY_LEAVE: AttendanceStatus.EARLY_LEAVE,
-        ActionType.CHECK_OUT: AttendanceStatus.OFF_WORK,
-    },
-
-    # 외출 상태
-    AttendanceStatus.OUTING: {
-        ActionType.RETURN: AttendanceStatus.WORKING,
-    },
-
-    # 점심 상태
-    AttendanceStatus.LUNCH: {
-        ActionType.RETURN: AttendanceStatus.WORKING,
-    },
-
-    # 조퇴 상태
-    AttendanceStatus.EARLY_LEAVE: {
-        ActionType.CHECK_OUT: AttendanceStatus.OFF_WORK,
-    },
-
-    # 퇴근 상태
-    AttendanceStatus.OFF_WORK: {
-        # 아무 행동도 허용하지 않음
-    },
-}
-
-
-# 상태 계산
-def get_next_status(
-    current_status: AttendanceStatus | None,
-    action_type: ActionType
-) -> AttendanceStatus:
-
-    allowed_actions = STATE_TRANSITION.get(current_status)
-
-    if allowed_actions is None:
-        raise InvalidTransitionException(
-            f"알 수 없는 상태입니다: {current_status}"
-        )
-
-    if action_type not in allowed_actions:
-        current_label = current_status.label if current_status else "출근 전"
-        allowed_labels = ", ".join(a.label for a in allowed_actions)
-        raise InvalidTransitionException(
-            f"현재 상태 [{current_label}]에서 [{action_type.label}]은(는) 불가능합니다. "
-            f"가능한 행동: {allowed_labels}"
-        )
-
-    return allowed_actions[action_type]
-
-
 class AttendanceService:
 
-    def __init__(self, session: Session):
+    def __init__(self, session: AsyncSession):
         self.session = session
 
-    # KST 날짜 범위
     def _get_today_range(self) -> tuple[datetime, datetime]:
         today = datetime.now(KST).date()
         start = datetime.combine(today, time.min)
         end = datetime.combine(today, time.max)
         return start, end
 
-    # 오늘 기록 조회
-    def get_today_records(self, employee_id: int):
-
+    async def get_today_records(self, employee_id: int):
         start, end = self._get_today_range()
-
         statement = (
             select(AttendanceRecord)
             .where(
@@ -103,14 +34,11 @@ class AttendanceService:
             )
             .order_by(AttendanceRecord.recorded_at)
         )
+        result = await self.session.exec(statement)
+        return result.all()
 
-        return self.session.exec(statement).all()
-
-    # 최근 기록 1건 조회
-    def get_latest_record(self, employee_id: int):
-
+    async def get_latest_record(self, employee_id: int):
         start, end = self._get_today_range()
-
         statement = (
             select(AttendanceRecord)
             .where(
@@ -121,35 +49,29 @@ class AttendanceService:
             .order_by(AttendanceRecord.recorded_at.desc())
             .limit(1)
         )
+        result = await self.session.exec(statement)
+        return result.first()
 
-        return self.session.exec(statement).first()
-
-    # 공통 생성 로직
-    def create_record(
+    async def _create_record(
         self,
         employee_id: int,
         action_type: ActionType,
-        status: AttendanceStatus
+        status: AttendanceStatus,
+        recorded_at: datetime | None = None,
     ):
-
         record = AttendanceRecord(
             employee_id=employee_id,
             action_type=action_type,
             status=status,
-            recorded_at=datetime.now(KST).replace(tzinfo=None)
+            recorded_at=recorded_at or datetime.now(KST).replace(tzinfo=None),
         )
-
         self.session.add(record)
-        self.session.commit()
-        self.session.refresh(record)
-
+        await self.session.commit()
+        await self.session.refresh(record)
         return record
 
-    # 출근
-    def check_in(self, employee_id: int):
-
-        # 직원이 없으면 자동 생성
-        employee = self.session.get(Employee, employee_id)
+    async def tap(self, employee_id: int):
+        employee = await self.session.get(Employee, employee_id)
         if not employee:
             employee = Employee(
                 id=employee_id,
@@ -158,90 +80,80 @@ class AttendanceService:
                 employee_number=str(employee_id),
             )
             self.session.add(employee)
-            self.session.commit()
+            await self.session.commit()
 
-        latest = self.get_latest_record(employee_id)
-        current_status = latest.status if latest else None
+        latest = await self.get_latest_record(employee_id)
 
-        try:
-            next_status = get_next_status(current_status, ActionType.CHECK_IN)
-        except InvalidTransitionException as e:
-            raise HTTPException(status_code=400, detail=str(e))
+        if latest and latest.status == AttendanceStatus.WORKING:
+            return await self._create_record(employee_id, ActionType.EXIT, AttendanceStatus.OUT)
 
-        return self.create_record(employee_id, ActionType.CHECK_IN, next_status)
+        return await self._create_record(employee_id, ActionType.ENTER, AttendanceStatus.WORKING)
 
-    # 공통 액션 처리
-    def _perform_action(self, employee_id: int, action_type: ActionType):
+    async def calculate_work_hours(self, employee_id: int):
+        records = await self.get_today_records(employee_id)
+        total_minutes = 0
+        is_currently_in = False
+        pending_enter: datetime | None = None
 
-        latest = self.get_latest_record(employee_id)
+        for record in records:
+            if record.status == AttendanceStatus.WORKING:
+                pending_enter = record.recorded_at
+            elif record.status == AttendanceStatus.OUT and pending_enter:
+                total_minutes += int((record.recorded_at - pending_enter).total_seconds() / 60)
+                pending_enter = None
 
-        if not latest:
-            raise HTTPException(status_code=404, detail="출근 기록 없음")
+        if pending_enter:
+            now = datetime.now(KST).replace(tzinfo=None)
+            total_minutes += int((now - pending_enter).total_seconds() / 60)
+            is_currently_in = True
 
-        try:
-            next_status = get_next_status(latest.status, action_type)
-        except InvalidTransitionException as e:
-            raise HTTPException(status_code=400, detail=str(e))
+        return total_minutes, is_currently_in, records
 
-        return self.create_record(employee_id, action_type, next_status)
+    async def add_record(self, employee_id: int, action_type: ActionType, recorded_at: datetime):
+        status = AttendanceStatus.WORKING if action_type == ActionType.ENTER else AttendanceStatus.OUT
+        return await self._create_record(employee_id, action_type, status, recorded_at)
 
-    # 퇴근
-    def check_out(self, employee_id: int):
-        return self._perform_action(employee_id, ActionType.CHECK_OUT)
+    async def update_record(self, employee_id: int, action_type: ActionType | None, recorded_at: datetime | None):
+        record = await self.get_latest_record(employee_id)
+        if not record:
+            raise HTTPException(status_code=404, detail="출퇴근 기록 없음")
 
-    # 외출
-    def outing(self, employee_id: int):
-        return self._perform_action(employee_id, ActionType.OUTING)
+        if action_type is not None and action_type == record.action_type:
+            raise HTTPException(status_code=400, detail=f"이미 [{action_type.label}] 상태입니다")
 
-    # 복귀
-    def return_to_work(self, employee_id: int):
-        return self._perform_action(employee_id, ActionType.RETURN)
+        if recorded_at is not None and recorded_at == record.recorded_at:
+            raise HTTPException(status_code=400, detail="변경된 시간이 없습니다")
 
-    # 점심
-    def lunch(self, employee_id: int):
-        return self._perform_action(employee_id, ActionType.LUNCH)
+        before_status = record.status
+        before_recorded_at = record.recorded_at
 
-    # 조퇴
-    def early_leave(self, employee_id: int):
-        return self._perform_action(employee_id, ActionType.EARLY_LEAVE)
+        if action_type is not None:
+            record.action_type = action_type
+            record.status = AttendanceStatus.WORKING if action_type == ActionType.ENTER else AttendanceStatus.OUT
+            attributes.flag_modified(record, "action_type")
+            attributes.flag_modified(record, "status")
 
+        if recorded_at is not None:
+            record.recorded_at = recorded_at
+            attributes.flag_modified(record, "recorded_at")
 
-    # 수정
-    def update_attendance(
-        self,
-        employee_id: int,
-        new_action_type: ActionType
-    ):
-
-        latest = self.get_latest_record(employee_id)
-
-        if not latest:
-            raise HTTPException(status_code=404, detail="출근 기록 없음")
-
-        try:
-            new_status = get_next_status(latest.status, new_action_type)
-        except InvalidTransitionException as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-        before_status = latest.status
-
-        # 둘 다 업데이트
-        latest.status = new_status
-        latest.action_type = new_action_type
-        attributes.flag_modified(latest, "status")
-        attributes.flag_modified(latest, "action_type")
-
-        # 로그 저장
         log = AttendanceLog(
-            attendance_id=latest.id,
+            attendance_id=record.id,
             before_status=before_status,
-            after_status=new_status,
+            after_status=record.status,
+            before_recorded_at=before_recorded_at,
+            after_recorded_at=record.recorded_at,
         )
 
-        self.session.add(latest)
+        self.session.add(record)
         self.session.add(log)
+        await self.session.commit()
+        await self.session.refresh(record)
+        return record
 
-        self.session.commit()
-        self.session.refresh(latest)
-
-        return latest
+    async def delete_record(self, employee_id: int):
+        record = await self.get_latest_record(employee_id)
+        if not record:
+            raise HTTPException(status_code=404, detail="출퇴근 기록 없음")
+        await self.session.delete(record)
+        await self.session.commit()

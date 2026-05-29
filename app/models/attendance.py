@@ -21,23 +21,15 @@ class AttendanceRecord(SQLModel, table=True):
         primary_key=True
     )
 
-    # 직원 FK
     employee_id: int = Field(
         foreign_key="employees.id",
         nullable=False
     )
 
-    # 행동 종류
-    action_type: ActionType = Field(
-        nullable=False
-    )
+    action_type: ActionType = Field(nullable=False)
 
-    # 현재 상태
-    status: AttendanceStatus = Field(
-        nullable=False
-    )
+    status: AttendanceStatus = Field(nullable=False)
 
-    # 기록 시간
     recorded_at: datetime = Field(
         default_factory=_now_kst,
         nullable=False
@@ -54,5 +46,9 @@ class AttendanceLog(SQLModel, table=True):
     before_status: AttendanceStatus
 
     after_status: AttendanceStatus
+
+    before_recorded_at: Optional[datetime] = Field(default=None)
+
+    after_recorded_at: Optional[datetime] = Field(default=None)
 
     modified_at: datetime = Field(default_factory=_now_kst)
