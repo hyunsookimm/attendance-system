@@ -101,15 +101,7 @@ class AttendanceService:
     async def tap(self, employee_id: int) -> AttendanceRecord:
         employee = await self.session.get(Employee, employee_id)
         if not employee:
-            employee = Employee(
-                id=employee_id,
-                name=f"직원_{employee_id}",
-                department="미지정",
-                employee_number=str(employee_id),
-            )
-            self.session.add(employee)
-            await self.session.commit()
-            logger.info("직원 자동 생성: employee_id=%d", employee_id)
+            raise HTTPException(status_code=404, detail="등록되지 않은 직원입니다")
 
         latest = await self.get_latest_today_record(employee_id)
 

@@ -46,8 +46,8 @@ app.add_middleware(
 )
 
 app.include_router(attendance_router)
-app.include_router(admin_router)
 app.include_router(employees_router)
+app.include_router(admin_router)
 
 
 @app.get("/health", include_in_schema=False)
