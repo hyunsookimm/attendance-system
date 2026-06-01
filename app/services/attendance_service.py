@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, time, timezone
 from collections.abc import Sequence
 
@@ -11,6 +12,8 @@ from app.models.employee import Employee
 from app.enums.status import AttendanceStatus
 from app.enums.action_type import ActionType
 from app.timezone import KST
+
+logger = logging.getLogger("app.service")
 
 
 class AttendanceService:
@@ -106,13 +109,18 @@ class AttendanceService:
             )
             self.session.add(employee)
             await self.session.commit()
+            logger.info("직원 자동 생성: employee_id=%d", employee_id)
 
         latest = await self.get_latest_today_record(employee_id)
 
         if latest and latest.status == AttendanceStatus.WORKING:
-            return await self._create_record(employee_id, ActionType.EXIT, AttendanceStatus.OUT)
+            record = await self._create_record(employee_id, ActionType.EXIT, AttendanceStatus.OUT)
+            logger.info("퇴근 tap: employee_id=%d, recorded_at=%s", employee_id, record.recorded_at)
+            return record
 
-        return await self._create_record(employee_id, ActionType.ENTER, AttendanceStatus.WORKING)
+        record = await self._create_record(employee_id, ActionType.ENTER, AttendanceStatus.WORKING)
+        logger.info("출근 tap: employee_id=%d, recorded_at=%s", employee_id, record.recorded_at)
+        return record
 
     async def calculate_work_hours(self, employee_id: int) -> tuple[int, bool, Sequence[AttendanceRecord]]:
         records = await self.get_today_records(employee_id)
@@ -136,7 +144,9 @@ class AttendanceService:
 
     async def add_record(self, employee_id: int, action_type: ActionType, recorded_at: datetime) -> AttendanceRecord:
         status = AttendanceStatus.WORKING if action_type == ActionType.ENTER else AttendanceStatus.OUT
-        return await self._create_record(employee_id, action_type, status, recorded_at)
+        record = await self._create_record(employee_id, action_type, status, recorded_at)
+        logger.info("기록 추가: employee_id=%d, action=%s, recorded_at=%s", employee_id, action_type.value, record.recorded_at)
+        return record
 
     async def update_record(self, employee_id: int, action_type: ActionType | None, recorded_at: datetime | None) -> AttendanceRecord:
         if action_type is None and recorded_at is None:
@@ -183,6 +193,12 @@ class AttendanceService:
         self.session.add(log)
         await self.session.commit()
         await self.session.refresh(record)
+        logger.info(
+            "기록 수정: employee_id=%d, action=%s→%s, recorded_at=%s→%s",
+            employee_id,
+            before_action_type.value, record.action_type.value,
+            before_recorded_at, record.recorded_at,
+        )
         return record
 
     async def delete_record(self, employee_id: int) -> None:
@@ -191,3 +207,4 @@ class AttendanceService:
             raise HTTPException(status_code=404, detail="출퇴근 기록 없음")
         await self.session.delete(record)
         await self.session.commit()
+        logger.info("기록 삭제: employee_id=%d, record_id=%s", employee_id, record.id)

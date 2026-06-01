@@ -1,16 +1,23 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
+from app.logging_config import setup_logging
 from app.routes.attendance import router as attendance_router
 from app.routes.admin import router as admin_router
+
+setup_logging(settings.env)
+logger = logging.getLogger("app")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logger.info("서버 시작 (env=%s)", settings.env)
     yield
+    logger.info("서버 종료")
 
 
 app = FastAPI(
