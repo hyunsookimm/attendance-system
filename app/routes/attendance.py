@@ -8,7 +8,7 @@ from app.schemas.attendance_response import AttendanceRecordResponse
 router = APIRouter(prefix="/attendance", tags=["직원"])
 
 
-async def get_service(session: AsyncSession = Depends(get_session)):
+async def get_service(session: AsyncSession = Depends(get_session)) -> AttendanceService:
     return AttendanceService(session)
 
 

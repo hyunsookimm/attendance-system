@@ -1,14 +1,11 @@
-import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
-from dotenv import load_dotenv
 
+from app.config import settings
 from app.routes.attendance import router as attendance_router
 from app.routes.admin import router as admin_router
-
-load_dotenv()
 
 
 @asynccontextmanager
@@ -32,11 +29,9 @@ app = FastAPI(
     ]
 )
 
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "").split(",")
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origins=settings.origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -44,3 +39,8 @@ app.add_middleware(
 
 app.include_router(attendance_router)
 app.include_router(admin_router)
+
+
+@app.get("/health", tags=["시스템"], summary="서버 상태 확인")
+async def health() -> dict[str, str]:
+    return {"status": "ok"}

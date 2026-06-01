@@ -1,4 +1,5 @@
-from datetime import datetime, time
+from datetime import datetime, time, timezone
+from collections.abc import Sequence
 
 from fastapi import HTTPException
 from sqlalchemy.orm import attributes
@@ -14,16 +15,23 @@ from app.timezone import KST
 
 class AttendanceService:
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
     def _get_today_range(self) -> tuple[datetime, datetime]:
         today = datetime.now(KST).date()
-        start = datetime.combine(today, time.min)
-        end = datetime.combine(today, time.max)
-        return start, end
+        start_kst = datetime.combine(today, time.min).replace(tzinfo=KST)
+        end_kst = datetime.combine(today, time.max).replace(tzinfo=KST)
+        start_utc = start_kst.astimezone(timezone.utc).replace(tzinfo=None)
+        end_utc = end_kst.astimezone(timezone.utc).replace(tzinfo=None)
+        return start_utc, end_utc
 
-    async def get_today_records(self, employee_id: int):
+    def _to_utc_naive(self, dt: datetime) -> datetime:
+        if dt.tzinfo is not None:
+            return dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt.replace(tzinfo=KST).astimezone(timezone.utc).replace(tzinfo=None)
+
+    async def get_today_records(self, employee_id: int) -> Sequence[AttendanceRecord]:
         start, end = self._get_today_range()
         statement = (
             select(AttendanceRecord)
@@ -32,12 +40,13 @@ class AttendanceService:
                 AttendanceRecord.recorded_at >= start,
                 AttendanceRecord.recorded_at <= end,
             )
-            .order_by(AttendanceRecord.recorded_at)
+            .order_by(AttendanceRecord.recorded_at)  # type: ignore[arg-type]
         )
         result = await self.session.exec(statement)
         return result.all()
 
-    async def get_latest_record(self, employee_id: int):
+    async def get_latest_today_record(self, employee_id: int) -> AttendanceRecord | None:
+        """오늘 기록 중 가장 최근 (tap 판별용)"""
         start, end = self._get_today_range()
         statement = (
             select(AttendanceRecord)
@@ -46,7 +55,18 @@ class AttendanceService:
                 AttendanceRecord.recorded_at >= start,
                 AttendanceRecord.recorded_at <= end,
             )
-            .order_by(AttendanceRecord.recorded_at.desc())
+            .order_by(AttendanceRecord.recorded_at.desc())  # type: ignore[attr-defined]
+            .limit(1)
+        )
+        result = await self.session.exec(statement)
+        return result.first()
+
+    async def get_latest_record(self, employee_id: int) -> AttendanceRecord | None:
+        """날짜 무관 가장 최근 기록 (관리자 수정/삭제용)"""
+        statement = (
+            select(AttendanceRecord)
+            .where(AttendanceRecord.employee_id == employee_id)
+            .order_by(AttendanceRecord.recorded_at.desc())  # type: ignore[attr-defined]
             .limit(1)
         )
         result = await self.session.exec(statement)
@@ -58,19 +78,24 @@ class AttendanceService:
         action_type: ActionType,
         status: AttendanceStatus,
         recorded_at: datetime | None = None,
-    ):
+    ) -> AttendanceRecord:
+        if recorded_at is None:
+            stored_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        else:
+            stored_at = self._to_utc_naive(recorded_at)
+
         record = AttendanceRecord(
             employee_id=employee_id,
             action_type=action_type,
             status=status,
-            recorded_at=recorded_at or datetime.now(KST).replace(tzinfo=None),
+            recorded_at=stored_at,
         )
         self.session.add(record)
         await self.session.commit()
         await self.session.refresh(record)
         return record
 
-    async def tap(self, employee_id: int):
+    async def tap(self, employee_id: int) -> AttendanceRecord:
         employee = await self.session.get(Employee, employee_id)
         if not employee:
             employee = Employee(
@@ -82,14 +107,14 @@ class AttendanceService:
             self.session.add(employee)
             await self.session.commit()
 
-        latest = await self.get_latest_record(employee_id)
+        latest = await self.get_latest_today_record(employee_id)
 
         if latest and latest.status == AttendanceStatus.WORKING:
             return await self._create_record(employee_id, ActionType.EXIT, AttendanceStatus.OUT)
 
         return await self._create_record(employee_id, ActionType.ENTER, AttendanceStatus.WORKING)
 
-    async def calculate_work_hours(self, employee_id: int):
+    async def calculate_work_hours(self, employee_id: int) -> tuple[int, bool, Sequence[AttendanceRecord]]:
         records = await self.get_today_records(employee_id)
         total_minutes = 0
         is_currently_in = False
@@ -103,17 +128,20 @@ class AttendanceService:
                 pending_enter = None
 
         if pending_enter:
-            now = datetime.now(KST).replace(tzinfo=None)
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
             total_minutes += int((now - pending_enter).total_seconds() / 60)
             is_currently_in = True
 
         return total_minutes, is_currently_in, records
 
-    async def add_record(self, employee_id: int, action_type: ActionType, recorded_at: datetime):
+    async def add_record(self, employee_id: int, action_type: ActionType, recorded_at: datetime) -> AttendanceRecord:
         status = AttendanceStatus.WORKING if action_type == ActionType.ENTER else AttendanceStatus.OUT
         return await self._create_record(employee_id, action_type, status, recorded_at)
 
-    async def update_record(self, employee_id: int, action_type: ActionType | None, recorded_at: datetime | None):
+    async def update_record(self, employee_id: int, action_type: ActionType | None, recorded_at: datetime | None) -> AttendanceRecord:
+        if action_type is None and recorded_at is None:
+            raise HTTPException(status_code=400, detail="변경할 내용이 없습니다")
+
         record = await self.get_latest_record(employee_id)
         if not record:
             raise HTTPException(status_code=404, detail="출퇴근 기록 없음")
@@ -121,9 +149,13 @@ class AttendanceService:
         if action_type is not None and action_type == record.action_type:
             raise HTTPException(status_code=400, detail=f"이미 [{action_type.label}] 상태입니다")
 
-        if recorded_at is not None and recorded_at == record.recorded_at:
-            raise HTTPException(status_code=400, detail="변경된 시간이 없습니다")
+        stored_recorded_at = None
+        if recorded_at is not None:
+            stored_recorded_at = self._to_utc_naive(recorded_at)
+            if stored_recorded_at == record.recorded_at:
+                raise HTTPException(status_code=400, detail="변경된 시간이 없습니다")
 
+        before_action_type = record.action_type
         before_status = record.status
         before_recorded_at = record.recorded_at
 
@@ -133,12 +165,14 @@ class AttendanceService:
             attributes.flag_modified(record, "action_type")
             attributes.flag_modified(record, "status")
 
-        if recorded_at is not None:
-            record.recorded_at = recorded_at
+        if stored_recorded_at is not None:
+            record.recorded_at = stored_recorded_at
             attributes.flag_modified(record, "recorded_at")
 
         log = AttendanceLog(
             attendance_id=record.id,
+            before_action_type=before_action_type,
+            after_action_type=record.action_type,
             before_status=before_status,
             after_status=record.status,
             before_recorded_at=before_recorded_at,
@@ -151,7 +185,7 @@ class AttendanceService:
         await self.session.refresh(record)
         return record
 
-    async def delete_record(self, employee_id: int):
+    async def delete_record(self, employee_id: int) -> None:
         record = await self.get_latest_record(employee_id)
         if not record:
             raise HTTPException(status_code=404, detail="출퇴근 기록 없음")

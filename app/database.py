@@ -1,19 +1,13 @@
-import os
 from typing import AsyncGenerator
 
-from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import create_async_engine
-from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-load_dotenv()
-
-DATABASE_URL = os.getenv("DATABASE_URL")
-ENV = os.getenv("ENV", "production")
+from app.config import settings
 
 engine = create_async_engine(
-    DATABASE_URL,
-    echo=(ENV == "development"),
+    settings.database_url,
+    echo=(settings.env == "development"),
     pool_pre_ping=True,
     pool_recycle=300,
 )
