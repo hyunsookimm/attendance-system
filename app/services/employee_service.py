@@ -26,12 +26,26 @@ class EmployeeService:
             raise HTTPException(status_code=404, detail="직원 없음")
         return employee
 
-    async def create(self, name: str, department: str, employee_number: str) -> Employee:
-        existing = await self.session.exec(
-            select(Employee).where(Employee.employee_number == employee_number)
-        )
-        if existing.first():
-            raise HTTPException(status_code=409, detail=f"사번 [{employee_number}] 이미 존재합니다")
+    async def _next_employee_number(self) -> str:
+        result = await self.session.exec(select(Employee.employee_number))
+        used = set()
+        for num in result.all():
+            if num.isdigit():
+                used.add(int(num))
+        n = 1
+        while n in used:
+            n += 1
+        return str(n)
+
+    async def create(self, name: str, department: str, employee_number: str | None) -> Employee:
+        if employee_number is None:
+            employee_number = await self._next_employee_number()
+        else:
+            existing = await self.session.exec(
+                select(Employee).where(Employee.employee_number == employee_number)
+            )
+            if existing.first():
+                raise HTTPException(status_code=409, detail=f"사번 [{employee_number}] 이미 존재합니다")
 
         employee = Employee(name=name, department=department, employee_number=employee_number)
         self.session.add(employee)
@@ -40,8 +54,8 @@ class EmployeeService:
         logger.info("직원 등록: id=%d, name=%s, employee_number=%s", employee.id, name, employee_number)
         return employee
 
-    async def update(self, employee_id: int, name: str | None, department: str | None) -> Employee:
-        if name is None and department is None:
+    async def update(self, employee_id: int, name: str | None, department: str | None, employee_number: str | None) -> Employee:
+        if name is None and department is None and employee_number is None:
             raise HTTPException(status_code=400, detail="변경할 내용이 없습니다")
 
         employee = await self.get_by_id(employee_id)
@@ -50,6 +64,13 @@ class EmployeeService:
             employee.name = name
         if department is not None:
             employee.department = department
+        if employee_number is not None:
+            existing = await self.session.exec(
+                select(Employee).where(Employee.employee_number == employee_number)
+            )
+            if existing.first():
+                raise HTTPException(status_code=409, detail=f"사번 [{employee_number}] 이미 존재합니다")
+            employee.employee_number = employee_number
 
         self.session.add(employee)
         await self.session.commit()

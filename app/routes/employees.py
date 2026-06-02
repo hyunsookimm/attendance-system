@@ -26,7 +26,7 @@ async def get_one(employee_id: int, service: EmployeeService = Depends(get_servi
 
 @router.post("", summary="직원 등록", response_model=EmployeeResponse, status_code=201)
 async def create(request: EmployeeCreateRequest, service: EmployeeService = Depends(get_service)):
-    return await service.create(request.name, request.department, request.employee_number)
+    return await service.create(request.name, request.department, request.employee_number)  # type: ignore[arg-type]
 
 
 @router.patch("/{employee_id}", summary="직원 정보 수정", response_model=EmployeeResponse)
@@ -35,7 +35,7 @@ async def update(
     request: EmployeeUpdateRequest,
     service: EmployeeService = Depends(get_service),
 ):
-    return await service.update(employee_id, request.name, request.department)
+    return await service.update(employee_id, request.name, request.department, request.employee_number)
 
 
 @router.delete("/{employee_id}", summary="직원 삭제", status_code=204)

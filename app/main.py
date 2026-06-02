@@ -2,6 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.openapi.utils import get_openapi
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
@@ -25,6 +26,7 @@ app = FastAPI(
     title="Attendance System",
     version="1.0.0",
     lifespan=lifespan,
+    swagger_ui_parameters={"sortPropsAlphabetically": False},
     openapi_tags=[
         {
             "name": "직원",
@@ -52,4 +54,25 @@ app.add_middleware(
 app.include_router(attendance_router)
 app.include_router(employees_router)
 app.include_router(admin_router)
+
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        routes=app.routes,
+        tags=app.openapi_tags,
+    )
+    field_order = ["name", "department", "employee_number"]
+    for schema_name in ["EmployeeCreateRequest", "EmployeeUpdateRequest"]:
+        s = schema.get("components", {}).get("schemas", {}).get(schema_name)
+        if s and "properties" in s:
+            s["properties"] = {k: s["properties"][k] for k in field_order if k in s["properties"]}
+    app.openapi_schema = schema
+    return schema
+
+
+app.openapi = custom_openapi  # type: ignore[method-assign]
 
