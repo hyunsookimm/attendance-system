@@ -10,7 +10,7 @@ from app.schemas.attendance_update import AttendanceUpdateRequest
 from app.schemas.attendance_create import AttendanceCreateRequest
 from app.schemas.work_hours_response import WorkHoursResponse
 
-router = APIRouter(prefix="/admin/attendance", tags=["관리자"])
+router = APIRouter(prefix="/admin/attendance", tags=["관리자 - 근태관리"])
 
 
 async def get_service(session: AsyncSession = Depends(get_session)) -> AttendanceService:

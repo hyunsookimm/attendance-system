@@ -31,7 +31,11 @@ app = FastAPI(
             "description": "직원이 직접 사용하는 출퇴근 기록 API입니다.",
         },
         {
-            "name": "관리자",
+            "name": "관리자 - 직원관리",
+            "description": "관리자가 직원을 등록, 조회, 수정, 삭제하는 API입니다.",
+        },
+        {
+            "name": "관리자 - 근태관리",
             "description": "관리자가 직원의 출퇴근 기록을 조회하고 수정하는 API입니다.",
         },
     ]
@@ -49,7 +53,3 @@ app.include_router(attendance_router)
 app.include_router(employees_router)
 app.include_router(admin_router)
 
-
-@app.get("/health", include_in_schema=False)
-async def health() -> dict[str, str]:
-    return {"status": "ok"}

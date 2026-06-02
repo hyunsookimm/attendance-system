@@ -1,10 +1,9 @@
-"""simplify action_type and status enums, add log recorded_at fields
+# simplify action_type and status enums, add log recorded_at fields
+#
+# Revision ID: a1b2c3d4e5f6
+# Revises: db721b60340a
+# Create Date: 2026-05-29
 
-Revision ID: a1b2c3d4e5f6
-Revises: db721b60340a
-Create Date: 2026-05-29
-
-"""
 from typing import Union, Sequence
 
 from alembic import op

@@ -7,7 +7,7 @@ from app.database import get_session
 from app.schemas.employee import EmployeeCreateRequest, EmployeeUpdateRequest, EmployeeResponse
 from app.services.employee_service import EmployeeService
 
-router = APIRouter(prefix="/admin/employees", tags=["관리자"])
+router = APIRouter(prefix="/admin/employees", tags=["관리자 - 직원관리"])
 
 
 async def get_service(session: AsyncSession = Depends(get_session)) -> EmployeeService:
