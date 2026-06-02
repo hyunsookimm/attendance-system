@@ -26,6 +26,27 @@ class EmployeeService:
             raise HTTPException(status_code=404, detail="직원 없음")
         return employee
 
+    async def resolve_employee(self, employee_id: int | None, name: str | None) -> Employee:
+        if employee_id is None and name is None:
+            raise HTTPException(status_code=400, detail="employee_id 또는 name 중 하나를 입력해주세요")
+
+        if name is not None:
+            stmt = select(Employee).where(Employee.name == name)
+            if employee_id is not None:
+                stmt = stmt.where(Employee.id == employee_id)
+            result = await self.session.exec(stmt)
+            employees = result.all()
+            if not employees:
+                raise HTTPException(status_code=404, detail="등록되지 않은 직원입니다")
+            if len(employees) > 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"동일한 이름의 직원이 {len(employees)}명입니다. employee_id도 함께 입력해주세요",
+                )
+            return employees[0]
+
+        return await self.get_by_id(employee_id)  # type: ignore[arg-type]
+
     async def _next_employee_number(self) -> str:
         result = await self.session.exec(select(Employee.employee_number))
         used = set()

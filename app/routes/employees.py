@@ -19,25 +19,37 @@ async def get_all(service: EmployeeService = Depends(get_service)):
     return await service.get_all()
 
 
-@router.get("/{employee_id}", summary="직원 단건 조회", response_model=EmployeeResponse)
-async def get_one(employee_id: int, service: EmployeeService = Depends(get_service)):
-    return await service.get_by_id(employee_id)
+@router.get("/one", summary="직원 단건 조회", response_model=EmployeeResponse)
+async def get_one(
+    employee_id: int | None = None,
+    name: str | None = None,
+    service: EmployeeService = Depends(get_service),
+):
+    return await service.resolve_employee(employee_id, name)
 
 
 @router.post("", summary="직원 등록", response_model=EmployeeResponse, status_code=201)
+
 async def create(request: EmployeeCreateRequest, service: EmployeeService = Depends(get_service)):
     return await service.create(request.name, request.department, request.employee_number)  # type: ignore[arg-type]
 
 
-@router.patch("/{employee_id}", summary="직원 정보 수정", response_model=EmployeeResponse)
+@router.patch("/one", summary="직원 정보 수정", response_model=EmployeeResponse)
 async def update(
-    employee_id: int,
     request: EmployeeUpdateRequest,
+    employee_id: int | None = None,
+    name: str | None = None,
     service: EmployeeService = Depends(get_service),
 ):
-    return await service.update(employee_id, request.name, request.department, request.employee_number)
+    employee = await service.resolve_employee(employee_id, name)
+    return await service.update(employee.id, request.name, request.department, request.employee_number)
 
 
-@router.delete("/{employee_id}", summary="직원 삭제", status_code=204)
-async def delete(employee_id: int, service: EmployeeService = Depends(get_service)):
-    await service.delete(employee_id)
+@router.delete("/one", summary="직원 삭제", status_code=204)
+async def delete(
+    employee_id: int | None = None,
+    name: str | None = None,
+    service: EmployeeService = Depends(get_service),
+):
+    employee = await service.resolve_employee(employee_id, name)
+    await service.delete(employee.id)
