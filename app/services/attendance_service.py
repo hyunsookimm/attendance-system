@@ -49,7 +49,7 @@ class AttendanceService:
         return result.all()
 
     async def get_latest_today_record(self, employee_id: int) -> AttendanceRecord | None:
-        # 오늘 기록 중 가장 최근 (tap 판별용)
+        # 오늘 기록 중 가장 최근
         start, end = self._get_today_range()
         statement = (
             select(AttendanceRecord)
@@ -65,7 +65,7 @@ class AttendanceService:
         return result.first()
 
     async def get_latest_record(self, employee_id: int) -> AttendanceRecord | None:
-        # 날짜 무관 가장 최근 기록 (관리자 수정/삭제용)
+        # 가장 최근 기록 (관리자 수정/삭제용)
         statement = (
             select(AttendanceRecord)
             .where(AttendanceRecord.employee_id == employee_id)
